@@ -9,7 +9,7 @@ from allennlp.data.dataset_readers.dataset_reader import DatasetReader
 from allennlp.data.fields import Field, TextField, LabelField, MetadataField
 from allennlp.data.instance import Instance
 from allennlp.data.token_indexers import SingleIdTokenIndexer, TokenIndexer
-from allennlp.data.tokenizers import Tokenizer, WordTokenizer
+from allennlp.data.tokenizers import Tokenizer, WordTokenizer, Token
 
 logger = logging.getLogger(__name__)  # pylint: disable=invalid-name
 
@@ -67,8 +67,8 @@ class SnliReader(DatasetReader):
                          label: str = None) -> Instance:
         # pylint: disable=arguments-differ
         fields: Dict[str, Field] = {}
-        premise_tokens = self._tokenizer.tokenize(premise)
-        hypothesis_tokens = self._tokenizer.tokenize(hypothesis)
+        premise_tokens = [Token(token.text) for token in self._tokenizer.tokenize(premise)]
+        hypothesis_tokens = [Token(token.text) for token in  self._tokenizer.tokenize(hypothesis)]
         fields['premise'] = TextField(premise_tokens, self._token_indexers)
         fields['hypothesis'] = TextField(hypothesis_tokens, self._token_indexers)
         if label:
