@@ -50,7 +50,9 @@ class TextFieldEmbedder(torch.nn.Module, Registrable):
         """
         raise NotImplementedError
 
-    def extend_vocab(self, extended_vocab: Vocabulary) -> None:
+    def extend_vocab(self,
+                     extended_vocab: Vocabulary,
+                     archived_filename_mapping: Dict[str, str]) -> None:
         """
         Assures that this ``TextFieldEmbedder`` can work with extended vocabulary.
         Unless overridden by concrete ``TextFieldEmbedder``, it is no-op.

@@ -1,3 +1,4 @@
+from typing import Dict
 from overrides import overrides
 
 import torch
@@ -37,7 +38,10 @@ class TokenCharactersEncoder(TokenEmbedder):
         return self._dropout(self._encoder(self._embedding(token_characters), mask))
 
     @overrides
-    def extend_vocab(self, extended_vocab: Vocabulary, vocab_namespace: str = "token_characters"):
+    def extend_vocab(self,
+                     extended_vocab: Vocabulary,
+                     vocab_namespace: str = "token_characters",
+                     pretrained_files_dict: Dict[str, str] = None):
         """
         Extends the embedding module according to the extended vocabulary.
         Extended weight would be initialized with xavier uniform.
@@ -56,7 +60,9 @@ class TokenCharactersEncoder(TokenEmbedder):
         # Caveat: For allennlp v0.8.1 and below, we weren't storing vocab_namespace as an attribute, knowing
         # which is necessary at time of token_characters_encoder vocab extension. So old archive models are
         # currently unextendable unless the user used default vocab_namespace 'token_characters' for it.
-        self._embedding._module.extend_vocab(extended_vocab, vocab_namespace) # pylint: disable=protected-access
+        self._embedding._module.extend_vocab(extended_vocab, # pylint: disable=protected-access
+                                             vocab_namespace=vocab_namespace,
+                                             pretrained_files_dict=pretrained_files_dict)
 
     # The setdefault requires a custom from_params
     @classmethod

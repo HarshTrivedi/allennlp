@@ -17,6 +17,7 @@ from allennlp.commands.evaluate import evaluate
 from allennlp.commands.subcommand import Subcommand
 from allennlp.commands.train import datasets_from_params
 from allennlp.common import Params
+from allennlp.common.params import as_flat_dict
 from allennlp.common.util import prepare_environment, prepare_global_logging, \
                                  get_frozen_and_tunable_parameter_names
 from allennlp.data.iterators.data_iterator import DataIterator
@@ -205,10 +206,13 @@ def fine_tune_model(model: Model,
                                      for instance in dataset
                                      if key in datasets_for_vocab_creation))
 
-        # TODO(Harsh): Take files_to_archive and params (which is overriden by now) and get
-        # archived_filename_mapping:  mapping of original to updated filename.
-        # If files_to_archive is not available, set it None.
+        # archived_filename_mapping is mapping from original file name
+        # to the replaced filename to locate it in the archive.
         archived_filename_mapping = None
+        if files_to_archive:
+            flat_params_dict = as_flat_dict(params.duplicate().as_dict(quiet=True))
+            archived_filename_mapping: Dict[str, str] = {flat_params_dict[key]
+                                                         for key in files_to_archive.keys()}
 
         model.extend_embedder_vocab(vocab, archived_filename_mapping=archived_filename_mapping)
 
