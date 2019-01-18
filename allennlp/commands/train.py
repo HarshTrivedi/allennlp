@@ -315,7 +315,16 @@ def train_model(params: Params,
                  if key in datasets_for_vocab_creation)
         )
 
-    model = Model.from_params(vocab=vocab, params=params.pop('model'))
+    model_params = params.pop('model')
+
+    # Force Pretrained (Embedding) files to be always be added in files_to_archive
+    files_to_archive = params.files_to_archive
+    flat_model_params_dict = model_params.duplicate().as_flat_dict(quiet=True)
+    for flat_key, value in flat_model_params_dict.items():
+        if flat_key.endswith("pretrained"):
+            files_to_archive[flat_key] = value
+
+    model = Model.from_params(vocab=vocab, params=model_params)
 
     # Initializing the model can have side effect of expanding the vocabulary
     vocab.save_to_files(os.path.join(serialization_dir, "vocabulary"))
@@ -369,11 +378,11 @@ def train_model(params: Params,
         if os.path.exists(os.path.join(serialization_dir, _DEFAULT_WEIGHTS)):
             logging.info("Training interrupted by the user. Attempting to create "
                          "a model archive using the current best epoch weights.")
-            archive_model(serialization_dir, files_to_archive=params.files_to_archive)
+            archive_model(serialization_dir, files_to_archive=files_to_archive)
         raise
 
     # Now tar up results
-    archive_model(serialization_dir, files_to_archive=params.files_to_archive)
+    archive_model(serialization_dir, files_to_archive=files_to_archive)
 
     logger.info("Loading the best epoch weights.")
     best_model_state_path = os.path.join(serialization_dir, 'best.th')
