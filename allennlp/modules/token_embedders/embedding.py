@@ -17,7 +17,7 @@ with warnings.catch_warnings():
 
 from allennlp.common import Params, Tqdm
 from allennlp.common.checks import ConfigurationError
-from allennlp.common.file_utils import get_file_extension, cached_path
+from allennlp.common.file_utils import get_file_extension, cached_path, file_is_available
 from allennlp.data import Vocabulary
 from allennlp.modules.token_embedders.token_embedder import TokenEmbedder
 from allennlp.modules.time_distributed import TimeDistributed
@@ -88,7 +88,8 @@ class Embedding(TokenEmbedder):
                  norm_type: float = 2.,
                  scale_grad_by_freq: bool = False,
                  sparse: bool = False,
-                 vocab_namespace: str = None) -> None:
+                 vocab_namespace: str = None,
+                 pretrained_file: str = None) -> None:
         super(Embedding, self).__init__()
         self.num_embeddings = num_embeddings
         self.padding_index = padding_index
@@ -97,6 +98,7 @@ class Embedding(TokenEmbedder):
         self.scale_grad_by_freq = scale_grad_by_freq
         self.sparse = sparse
         self._vocab_namespace = vocab_namespace
+        self._pretrained_file = pretrained_file
 
         self.output_dim = projection_dim or embedding_dim
 
@@ -146,11 +148,11 @@ class Embedding(TokenEmbedder):
             embedded = projection(embedded)
         return embedded
 
-    @overrides
     def extend_vocab(self,  # pylint: disable=arguments-differ
                      extended_vocab: Vocabulary,
                      vocab_namespace: str = None,
-                     pretrained_file: str = None) -> None:
+                     pretrained_file: str = None,
+                     model_path: str = None):
         """
         Extends the embedding matrix according to the extended vocabulary.
         If pretrained_file is available, it will be used for initializing the new words
@@ -170,6 +172,11 @@ class Embedding(TokenEmbedder):
             A file containing pretrained embeddings can be specified here. It can be
             the path to a local file or an URL of a (cached) remote file. Check format
             details in ``from_params`` of ``Embedding`` class.
+        model_path : str, (optional, default=None)
+            Path traversing the model attributes upto this embedding module.
+            Eg. "_text_field_embedder.token_embedder_tokens". This is only useful
+            to give helpful error message when extend_vocab is implicitly called
+            by fine-tune or any other command.
         """
         # Caveat: For allennlp v0.8.1 and below, we weren't storing vocab_namespace as an attribute,
         # knowing which is necessary at time of embedding vocab extension. So old archive models are
@@ -180,9 +187,33 @@ class Embedding(TokenEmbedder):
             vocab_namespace = "tokens"
             logging.warning("No vocab_namespace provided to Embedder.extend_vocab. Defaulting to 'tokens'.")
 
+        extended_num_embeddings = extended_vocab.get_vocab_size(vocab_namespace)
+        if extended_num_embeddings <= self.num_embeddings:
+            # It's already been extended. No need to initialize / read pretrained file in first place (no-op)
+            return
+
+        if self._pretrained_file and file_is_available(self._pretrained_file):
+            # pretrained_file attribute was saved during training and is available:
+            if pretrained_file:
+                # But user also passed pretrained_file
+                model_path_info = "at model_path, {model_path} " if model_path else ""
+                logging.warning(f"You passed pretrained_file, {pretrained_file} for "
+                                f"embedding {model_path_info}. But it's ignored because "
+                                f"original pretrained_file, {self._pretrained_file} is available.")
+            pretrained_file = self._pretrained_file
+
+        if not pretrained_file or file_is_available(pretrained_file):
+            extra_info = (f"Originally pretrained_file was at "
+                          f"{self._pretrained_file}. " if self._pretrained_file else "")
+            # It's better to warn here and not give error because there is no way to distinguish between
+            # whether pretrained-file wasn't used during training or user forgot to pass / passed incorrect
+            # mapping. Raising an error would prevent fine-tuning in the former case.
+            logging.warning(f"Embedding at model_path, {model_path} cannot locate the pretrained_file. "
+                            f"{extra_info} If you are fine-tuning and want to use using pretrained_file "
+                            f"for embedding extension, please pass the mapping by --embedding-sources argument.")
+
         embedding_dim = self.weight.data.shape[-1]
         if not pretrained_file:
-            extended_num_embeddings = extended_vocab.get_vocab_size(vocab_namespace)
             extra_num_embeddings = extended_num_embeddings - self.num_embeddings
             extra_weight = torch.FloatTensor(extra_num_embeddings, embedding_dim)
             torch.nn.init.xavier_uniform_(extra_weight)
