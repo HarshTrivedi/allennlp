@@ -359,7 +359,7 @@ class CallbackTrainer(TrainerBase):
             )
             for callback_params in callbacks_params
         ]
-
+        mixed_precision = params.pop("mixed_precision", False)
         params.assert_empty(cls.__name__)
         return cls(
             model,
@@ -371,4 +371,5 @@ class CallbackTrainer(TrainerBase):
             serialization_dir=serialization_dir,
             cuda_device=cuda_device,
             callbacks=callbacks,
+            mixed_precision=mixed_precision
         )
