@@ -25,7 +25,11 @@ from allennlp.training.callbacks.events import Events
 from allennlp.training.optimizers import Optimizer
 from allennlp.training.trainer_pieces import TrainerPieces
 from allennlp.training.trainer_base import TrainerBase
-from apex import amp
+
+try:
+    from apex import amp
+except:
+    pass
 
 logger = logging.getLogger(__name__)
 
