@@ -25,6 +25,7 @@ from allennlp.training.callbacks.events import Events
 from allennlp.training.optimizers import Optimizer
 from allennlp.training.trainer_pieces import TrainerPieces
 from allennlp.training.trainer_base import TrainerBase
+from apex import amp
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +56,7 @@ class CallbackTrainer(TrainerBase):
         serialization_dir: Optional[str] = None,
         cuda_device: Union[int, List] = -1,
         callbacks: List[Callback] = None,
+        mixed_precision: bool = False
     ) -> None:
         """
         A trainer for doing supervised learning. It just takes a labeled dataset
@@ -152,6 +154,11 @@ class CallbackTrainer(TrainerBase):
         # For capturing errors that occur during the train loop.
         self.exception: Optional[Exception] = None
 
+        self._mixed_precision = mixed_precision
+
+        if self._mixed_precision:
+            self.model, self.optimizer = amp.initialize(self.model, self.optimizer, opt_level="O2")
+
     def generate_training_batches(self):
         """
         Generates one epoch worth of training data. Stores it in trainer instance variables
@@ -212,7 +219,12 @@ class CallbackTrainer(TrainerBase):
         if torch.isnan(loss):
             raise ValueError("nan loss encountered")
 
-        loss.backward()
+        if self._mixed_precision:
+            with amp.scale_loss(loss, self.optimizer) as scaled_loss:
+                scaled_loss.backward()
+        else:
+            loss.backward()
+
         self.train_loss += loss.item()
 
         self.handler.fire_event(Events.BACKWARD)
