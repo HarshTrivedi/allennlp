@@ -20,7 +20,7 @@ def get_best_span(span_start_logits: torch.Tensor, span_end_logits: torch.Tensor
     # Only the upper triangle of the span matrix is valid; the lower triangle has entries where
     # the span ends before it starts.
     span_log_mask = torch.triu(torch.ones((passage_length, passage_length), device=device)).log()
-    valid_span_log_probs = span_log_probs + span_log_mask
+    valid_span_log_probs = span_log_probs + span_log_mask.type_as(span_log_probs)
 
     # Here we take the span matrix and flatten it, then find the best span using argmax.  We
     # can recover the start and end indices from this flattened list using simple modular
