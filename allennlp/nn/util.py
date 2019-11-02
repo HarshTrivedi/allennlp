@@ -302,7 +302,7 @@ def masked_log_softmax(vector: torch.Tensor, mask: torch.Tensor, dim: int = -1) 
     extreme, you've got bigger problems than this.
     """
     if mask is not None:
-        mask = mask.as_type(vector)
+        mask = mask.type_as(vector)
         while mask.dim() < vector.dim():
             mask = mask.unsqueeze(1)
         # vector + mask.log() is an easy way to zero out masked elements in logspace, but it
