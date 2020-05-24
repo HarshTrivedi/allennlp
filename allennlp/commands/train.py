@@ -206,7 +206,8 @@ def train_model_from_file(
         force,
         cache_directory,
         cache_prefix,
-        model_archive_path
+        model_archive_path,
+        overrides
     )
 
 
@@ -218,7 +219,8 @@ def train_model(
     force: bool = False,
     cache_directory: str = None,
     cache_prefix: str = None,
-    model_archive_path: str = None
+    model_archive_path: str = None,
+    archive_overrides: str = ""
 ) -> Model:
     """
     Trains the model specified in the given :class:`Params` object, using the data and training
@@ -291,7 +293,7 @@ def train_model(
 
         if model_archive_path:
         # Todo(Harsh): Temporary pre-emnlp hack.
-            archive = load_archive(model_archive_path)
+            archive = load_archive(model_archive_path, archive_overrides)
             model = archive.model
 
         trainer = TrainerBase.from_params(
