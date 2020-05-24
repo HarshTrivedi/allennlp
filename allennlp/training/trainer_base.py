@@ -65,6 +65,7 @@ class TrainerBase(Registrable):
         recover: bool = False,
         cache_directory: str = None,
         cache_prefix: str = None,
+        model: Model = None # pass pretrained model to fine-tuning.
     ):
 
         typ3 = params.get("trainer", {}).pop("type", "default")
@@ -77,6 +78,7 @@ class TrainerBase(Registrable):
             pieces = TrainerPieces.from_params(
                 params, serialization_dir, recover, cache_directory, cache_prefix
             )
+            # Not using pretrained model here.
             return Trainer.from_params(
                 model=pieces.model,
                 serialization_dir=serialization_dir,
@@ -94,5 +96,5 @@ class TrainerBase(Registrable):
             )
             assert is_overriden, f"Class {klass.__name__} must override `from_params`."
             return klass.from_params(
-                params, serialization_dir, recover, cache_directory, cache_prefix
+                params, serialization_dir, recover, cache_directory, cache_prefix, model
             )

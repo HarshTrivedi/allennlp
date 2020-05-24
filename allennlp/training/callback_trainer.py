@@ -324,11 +324,16 @@ class CallbackTrainer(TrainerBase):
         recover: bool = False,
         cache_directory: str = None,
         cache_prefix: str = None,
+        model: Model = None # pass pretrained model to fine-tuning.
     ) -> "CallbackTrainer":
         pieces = TrainerPieces.from_params(
             params, serialization_dir, recover, cache_directory, cache_prefix
         )
-        model = pieces.model
+        # TODO(Harsh): This is a temporary pre-emnlp fix.
+        if model is not None:
+            logger.info(f"Using pretrained model {type(model)} and finetuning on the dataset.")
+
+        model = model or pieces.model
         params = pieces.params
         validation_iterator = pieces.validation_iterator or pieces.iterator
 

@@ -269,7 +269,7 @@ class Model(torch.nn.Module, Registrable):
         # initialized embedding weight shape would be smaller than one in the state_dict.
         # So calling model embedding extension is required before load_state_dict.
         # If vocab and model embeddings are in sync, following would be just a no-op.
-        model.extend_embedder_vocab()
+        # model.extend_embedder_vocab()
 
         model_state = torch.load(weights_file, map_location=util.device_mapping(cuda_device))
         model.load_state_dict(model_state)

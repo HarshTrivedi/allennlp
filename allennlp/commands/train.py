@@ -54,7 +54,7 @@ from allennlp.common.util import (
     cleanup_global_logging,
     dump_metrics,
 )
-from allennlp.models.archival import archive_model, CONFIG_NAME
+from allennlp.models.archival import load_archive, archive_model, CONFIG_NAME
 from allennlp.models.model import Model, _DEFAULT_WEIGHTS
 from allennlp.training.trainer import Trainer
 from allennlp.training.trainer_base import TrainerBase
@@ -130,6 +130,13 @@ class Train(Subcommand):
             "settings a name in the cache, instead of computing a hash",
         )
 
+        subparser.add_argument(
+            "--model-archive-path",
+            type=str,
+            default="",
+            help="archive path if given start from this pretrained model",
+        )
+
         subparser.set_defaults(func=train_model_from_args)
 
         return subparser
@@ -148,6 +155,7 @@ def train_model_from_args(args: argparse.Namespace):
         args.force,
         args.cache_directory,
         args.cache_prefix,
+        args.model_archive_path
     )
 
 
@@ -160,6 +168,7 @@ def train_model_from_file(
     force: bool = False,
     cache_directory: str = None,
     cache_prefix: str = None,
+    model_archive_path: str = None
 ) -> Model:
     """
     A wrapper around :func:`train_model` which loads the params from a file.
@@ -197,6 +206,7 @@ def train_model_from_file(
         force,
         cache_directory,
         cache_prefix,
+        model_archive_path
     )
 
 
@@ -208,6 +218,7 @@ def train_model(
     force: bool = False,
     cache_directory: str = None,
     cache_prefix: str = None,
+    model_archive_path: str = None
 ) -> Model:
     """
     Trains the model specified in the given :class:`Params` object, using the data and training
@@ -278,8 +289,13 @@ def train_model(
                 "to run allennlp evaluate separately."
             )
 
+        if model_archive_path:
+        # Todo(Harsh): Temporary pre-emnlp hack.
+            archive = load_archive(model_archive_path)
+            model = archive.model
+
         trainer = TrainerBase.from_params(
-            params, serialization_dir, recover, cache_directory, cache_prefix
+            params, serialization_dir, recover, cache_directory, cache_prefix, model
         )
         evaluation_dataset = None
 
