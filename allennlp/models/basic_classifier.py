@@ -136,7 +136,7 @@ class BasicClassifier(Model):
         probs = torch.nn.functional.softmax(logits, dim=-1)
 
         output_dict = {"logits": logits, "probs": probs}
-        output_dict["token_ids"] = util.get_token_ids_from_text_field_tensors(tokens)
+        output_dict["id"] = [datum["id"] for datum in metadata]
         if label is not None:
             loss = self._loss(logits, label.long().view(-1))
             output_dict["loss"] = loss

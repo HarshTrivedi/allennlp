@@ -91,6 +91,9 @@ class CrossValidateModel(Registrable):
         fold_iterator = KFold(shuffle=True, n_splits=self.num_splits)
         n_splits = fold_iterator.get_n_splits(self.dataset)
 
+        prediction_paths_by_fold = []
+        test_indices_by_fold = []
+
         for fold_index, (non_test_indices, test_indices) in enumerate(
             fold_iterator.split(self.dataset)
         ):
@@ -159,6 +162,8 @@ class CrossValidateModel(Registrable):
                         file.write("\n".join(test_instance_ids))
 
             metrics_by_fold.append(fold_metrics)
+            prediction_paths_by_fold.append(prediction_path)
+            test_indices_by_fold.append(test_indices)
 
         metrics = {}
 
@@ -181,6 +186,24 @@ class CrossValidateModel(Registrable):
 
             trainer.train()
 
+        if self.predict:
+
+            prediction_lines = [None]*len(self.dataset)
+            for prediction_path, test_indices in zip(prediction_paths_by_fold, test_indices_by_fold):
+
+                with open(prediction_path) as file:
+                    lines = [line.strip() for line in file.readlines() if line.strip()]
+
+                for index, line in zip(test_indices, lines):
+                    prediction_lines[index] = line
+
+            assert not any(instance is None for instance in prediction_lines)
+
+            merged_prediction_path = os.path.join(self.serialization_dir, "predictions.jsonl")
+
+            with open(merged_prediction_path, "w") as file:
+                file.write("\n".join(prediction_lines))
+
         return metrics
 
     def finish(self, metrics: Dict[str, Any]) -> None:
@@ -199,10 +222,9 @@ class CrossValidateModel(Registrable):
         trainer: Lazy[Trainer],
         local_rank: int,  # It's passed transparently directly to the trainer.
         vocabulary: Lazy[Vocabulary] = None,
-        instance_label_key: Optional[str] = None,
-        instance_group_key: Optional[str] = None,
         dump_test_split_ids: Optional[bool] = None,
         retrain: bool = False,
+        num_splits: int = 5,
         predict: bool = False,
         predictor_name: str = None,
         predict_batch_size: int = 1
@@ -227,6 +249,7 @@ class CrossValidateModel(Registrable):
             data_loader_builder=data_loader,
             trainer_builder=trainer,
             dump_test_split_ids=dump_test_split_ids,
+            num_splits=num_splits,
             retrain=retrain,
             predict=predict,
             predictor_name=predictor_name,
