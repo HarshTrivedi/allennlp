@@ -1,19 +1,54 @@
 import copy
 import logging
 import os
-from typing import Any, Callable, Dict, Optional, Sequence
+from typing import Any, Callable, Dict, Optional, Sequence, List, Iterator
 
 from torch.utils.data import Dataset, Subset
+from sklearn.model_selection import KFold
 
-from allennlp.commands.cross_validator import CrossValidator, default_get_groups, default_get_labels
 from allennlp.commands.train import TrainModel
 from allennlp.common import Lazy, Registrable, util as common_util
 from allennlp.data import DataLoader, DatasetReader, Vocabulary, Instance
 from allennlp.models.model import Model
 from allennlp.training import Trainer, util as training_util
 from allennlp.training.metrics import Average
+from allennlp.predictors.predictor import Predictor
+from allennlp.common.util import lazy_groups_of
 
 logger = logging.getLogger(__name__)
+
+
+class _MiniPredictManager:
+    """
+    It's a copy of _PredictManager as in Predict, without all the bells and whistles
+    of input file, json etc.
+    """
+
+    def __init__(
+        self,
+        predictor: Predictor,
+        output_file: Optional[str],
+        batch_size: int
+    ) -> None:
+
+        self._predictor = predictor
+        self._output_file = open(output_file, "w")
+        self._batch_size = batch_size
+        self._dataset_reader = predictor._dataset_reader
+
+    def _predict_instances(self, batch_data: List[Instance]) -> Iterator[str]:
+        if len(batch_data) == 1:
+            results = [self._predictor.predict_instance(batch_data[0])]
+        else:
+            results = self._predictor.predict_batch_instance(batch_data)
+        for output in results:
+            yield self._predictor.dump_line(output)
+
+    def run(self, instances: List[Instance]) -> None:
+        for batch in lazy_groups_of(instances, self._batch_size):
+            for model_input_instance, result in zip(batch, self._predict_instances(batch)):
+                self._output_file.write(result)
+        self._output_file.close()
 
 
 def instances_get_key(instances: Sequence[Instance], key: str) -> Sequence[Any]:
@@ -26,60 +61,66 @@ class CrossValidateModel(Registrable):
         self,
         serialization_dir: str,
         dataset: Dataset,
+        dataset_reader: DatasetReader,
         data_loader_builder: Lazy[DataLoader],
         model: Model,
         trainer_builder: Lazy[Trainer],
-        cross_validator: CrossValidator,
-        instances_labels_fn: Callable[
-            [Sequence[Instance]], Optional[Sequence[Any]]
-        ] = default_get_labels,
-        instances_groups_fn: Callable[
-            [Sequence[Instance]], Optional[Sequence[Any]]
-        ] = default_get_groups,
-        batch_weight_key: str = "",
+        dump_test_split_ids: bool = False,
         retrain: bool = False,
+        num_splits: int = 5,
+        predict: bool = False,
+        predictor_name: str = None,
+        predict_batch_size: int = 1
     ) -> None:
         self.serialization_dir = serialization_dir
         self.dataset = dataset
         self.data_loader_builder = data_loader_builder
         self.model = model
         self.trainer_builder = trainer_builder
-        self.cross_validator = cross_validator
-        self.instances_labels_fn = instances_labels_fn
-        self.instances_groups_fn = instances_groups_fn
-        self.batch_weight_key = batch_weight_key
+        self.dataset_reader = dataset_reader
+        self.dump_test_split_ids = dump_test_split_ids
         self.retrain = retrain
+        self.predict = predict
+        self.predictor_name = predictor_name
+        self.predict_batch_size = predict_batch_size
+        self.num_splits = num_splits
 
     def run(self) -> Dict[str, Any]:
         metrics_by_fold = []
 
-        n_splits = self.cross_validator.get_n_splits(
-            self.dataset, labels_fn=self.instances_labels_fn, groups_fn=self.instances_groups_fn
-        )
+        fold_iterator = KFold(shuffle=True, n_splits=self.num_splits)
+        n_splits = fold_iterator.get_n_splits(self.dataset)
 
-        for fold_index, (train_indices, test_indices) in enumerate(
-            self.cross_validator(
-                self.dataset, labels_fn=self.instances_labels_fn, groups_fn=self.instances_groups_fn
-            )
+        for fold_index, (non_test_indices, test_indices) in enumerate(
+            fold_iterator.split(self.dataset)
         ):
+
+            train_indices = non_test_indices[:len(test_indices)]
+            dev_indices = non_test_indices[len(test_indices):]
+
             logger.info(f"Fold {fold_index}/{n_splits - 1}")
 
             serialization_dir = os.path.join(self.serialization_dir, f"fold_{fold_index}")
             if common_util.is_master():
                 os.makedirs(serialization_dir, exist_ok=True)
 
-            train_dataset = Subset(self.dataset, train_indices)
             # FIXME: `BucketBatchSampler` needs the dataset to have a vocab, so we workaround it:
+            train_dataset = Subset(self.dataset, train_indices)
             train_dataset.vocab = self.dataset.vocab
+            train_data_loader = self.data_loader_builder.construct(dataset=train_dataset)
+
+            dev_dataset = Subset(self.dataset, dev_indices)
+            dev_dataset.vocab = self.dataset.vocab
+            dev_data_loader = self.data_loader_builder.construct(dataset=dev_dataset)
+
             test_dataset = Subset(self.dataset, test_indices)
             test_dataset.vocab = self.dataset.vocab
-
-            train_data_loader = self.data_loader_builder.construct(dataset=train_dataset)
             test_data_loader = self.data_loader_builder.construct(dataset=test_dataset)
 
             model = copy.deepcopy(self.model)
             subtrainer = self.trainer_builder.construct(
-                serialization_dir=serialization_dir, data_loader=train_data_loader, model=model
+                serialization_dir=serialization_dir, data_loader=train_data_loader, 
+                validation_data_loader=dev_data_loader, model=model
             )
 
             fold_metrics = subtrainer.train()
@@ -88,7 +129,6 @@ class CrossValidateModel(Registrable):
                 model,
                 test_data_loader,
                 subtrainer.cuda_device,
-                batch_weight_key=self.batch_weight_key,
             ).items():
                 if metric_key in fold_metrics:
                     fold_metrics[f"test_{metric_key}"] = metric_value
@@ -101,6 +141,22 @@ class CrossValidateModel(Registrable):
                     fold_metrics,
                     log=True,
                 )
+
+                if self.predict:
+                    logger.info("Starting to predict on test instances.")
+                    prediction_path = os.path.join(subtrainer._serialization_dir, "predictions.jsonl")
+                    predictor = Predictor.by_name(self.predictor_name)(model, self.dataset_reader)
+                    predictor_manager = _MiniPredictManager(predictor, prediction_path, self.predict_batch_size)
+                    test_instances = [self.dataset[index] for index in test_indices]
+                    predictor_manager.run(test_instances)
+
+                if self.dump_test_split_ids:
+                    test_instance_ids = [self.dataset.instances[index].fields['metadata']['id']
+                                         for index in test_indices]
+                    test_instance_ids_path = os.path.join(subtrainer._serialization_dir,
+                                                          "test_instance_ids.txt")
+                    with open(test_instance_ids_path, "w") as file:
+                        file.write("\n".join(test_instance_ids))
 
             metrics_by_fold.append(fold_metrics)
 
@@ -136,18 +192,20 @@ class CrossValidateModel(Registrable):
     def from_partial_objects(
         cls,
         serialization_dir: str,
-        batch_weight_key: str,
         dataset_reader: DatasetReader,
         data_path: str,
         model: Lazy[Model],
         data_loader: Lazy[DataLoader],
         trainer: Lazy[Trainer],
-        cross_validator: CrossValidator,
         local_rank: int,  # It's passed transparently directly to the trainer.
         vocabulary: Lazy[Vocabulary] = None,
         instance_label_key: Optional[str] = None,
         instance_group_key: Optional[str] = None,
+        dump_test_split_ids: Optional[bool] = None,
         retrain: bool = False,
+        predict: bool = False,
+        predictor_name: str = None,
+        predict_batch_size: int = 1
     ) -> "CrossValidateModel":
         logger.info(f"Reading data from {data_path}")
         dataset = dataset_reader.read(data_path)
@@ -161,27 +219,16 @@ class CrossValidateModel(Registrable):
 
         dataset.index_with(model_.vocab)
 
-        instances_labels_fn = (
-            (lambda instances: instances_get_key(instances, instance_label_key))
-            if instance_label_key
-            else default_get_labels
-        )
-
-        instances_groups_fn = (
-            (lambda instances: instances_get_key(instances, instance_group_key))
-            if instance_group_key
-            else default_get_groups
-        )
-
         return cls(
             serialization_dir=serialization_dir,
             dataset=dataset,
             model=model_,
+            dataset_reader=dataset_reader,
             data_loader_builder=data_loader,
             trainer_builder=trainer,
-            cross_validator=cross_validator,
-            instances_labels_fn=instances_labels_fn,
-            instances_groups_fn=instances_groups_fn,
-            batch_weight_key=batch_weight_key,
+            dump_test_split_ids=dump_test_split_ids,
             retrain=retrain,
+            predict=predict,
+            predictor_name=predictor_name,
+            predict_batch_size=predict_batch_size
         )

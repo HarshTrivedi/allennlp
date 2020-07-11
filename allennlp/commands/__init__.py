@@ -23,7 +23,6 @@ from allennlp.commands.cross_validator import (
     StratifiedShuffleSplit,
     TimeSeriesSplit,
 )
-from allennlp.commands.elmo import Elmo
 from allennlp.commands.evaluate import Evaluate
 from allennlp.commands.find_learning_rate import FindLearningRate
 from allennlp.commands.predict import Predict

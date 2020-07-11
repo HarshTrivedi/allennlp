@@ -1,4 +1,4 @@
-from typing import Dict, Optional
+from typing import Dict, Optional, List
 
 from overrides import overrides
 import torch
@@ -94,7 +94,7 @@ class BasicClassifier(Model):
         initializer(self)
 
     def forward(  # type: ignore
-        self, tokens: TextFieldTensors, label: torch.IntTensor = None
+        self, tokens: TextFieldTensors, label: torch.IntTensor = None, metadata: List[Dict] = None
     ) -> Dict[str, torch.Tensor]:
 
         """
@@ -165,15 +165,15 @@ class BasicClassifier(Model):
             )
             classes.append(label_str)
         output_dict["label"] = classes
-        tokens = []
-        for instance_tokens in output_dict["token_ids"]:
-            tokens.append(
-                [
-                    self.vocab.get_token_from_index(token_id.item(), namespace=self._namespace)
-                    for token_id in instance_tokens
-                ]
-            )
-        output_dict["tokens"] = tokens
+        # tokens = []
+        # for instance_tokens in output_dict["token_ids"]:
+        #     tokens.append(
+        #         [
+        #             self.vocab.get_token_from_index(token_id.item(), namespace=self._namespace)
+        #             for token_id in instance_tokens
+        #         ]
+        #     )
+        # output_dict["tokens"] = tokens
         return output_dict
 
     def get_metrics(self, reset: bool = False) -> Dict[str, float]:
